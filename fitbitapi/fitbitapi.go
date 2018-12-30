@@ -25,6 +25,10 @@ type FitbitAuth struct {
 	Scope        string `json:"scope"`
 }
 
+type BodyWeight struct {
+	Weight []DataPoint `json:"body-weight"`
+}
+
 type ActivitySteps struct {
 	Steps []DataPoint `json:"activities-steps"`
 }
@@ -113,6 +117,20 @@ func (api *Api) GetActivitySteps() ActivitySteps {
 	}
 	res.Body.Close()
 	return activitySteps
+}
+
+func(api *Api) GetBodyWeight() BodyWeight {
+	req, _ := http.NewRequest("GET", "https://api.fitbit.com/1/user/-/body/weight/date/today/1y.json", nil)
+	req.Header.Set("Authorization", "Bearer" + api.Auth.AccessToken)
+	res, _ := http.DefaultClient.Do(req)
+	var bodyWeight BodyWeight
+	decoder := json.NewDecoder(res.Body)
+	decerr := decoder.Decode(&bodyWeight)
+	if decerr != nil {
+		panic(decerr)
+	}
+	res.Body.Close()
+	return bodyWeight
 }
 
 func (api *Api) GetRestingHeartrate() ActivityHeart {

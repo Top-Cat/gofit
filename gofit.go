@@ -6,9 +6,10 @@ import (
 	"net/http"
 	"os"
 	"time"
+	"strconv"
 
 	client "github.com/influxdata/influxdb/client/v2"
-	"github.com/timatooth/gofit/fitbitapi"
+	"github.com/Top-Cat/gofit/fitbitapi"
 )
 
 func loadInfluxData(api *fitbitapi.Api) {
@@ -17,6 +18,7 @@ func loadInfluxData(api *fitbitapi.Api) {
 		InfluxDatabaseName = os.Getenv("INFLUX_DB")
 		InfluxUsername     = os.Getenv("INFLUX_USERNAME")
 		InfluxPassword     = os.Getenv("INFLUX_PASSWORD")
+		TimePeriod         = os.Getenv("TIME_PERIOD")
 	)
 	if InfluxHostname == "" {
 		InfluxHostname = "http://localhost:8086"
@@ -24,6 +26,10 @@ func loadInfluxData(api *fitbitapi.Api) {
 	if InfluxDatabaseName == "" {
 		InfluxDatabaseName = "fitbit"
 	}
+	if TimePeriod == "" {
+		TimePeriod = "30"
+	}
+	TimePeriodI, err := strconv.Atoi(TimePeriod)
 
 	fmt.Println("Loading step data into influxdb...")
 	activitySteps := api.GetActivitySteps()
@@ -51,6 +57,10 @@ func loadInfluxData(api *fitbitapi.Api) {
 		if e != nil {
 			log.Fatal(e)
 		}
+		delta := time.Now().Sub(t1)
+		if int(delta.Hours()) > (TimePeriodI * 24) {
+			continue
+		}
 		tags := map[string]string{"steps": "steps-total"}
 		fields := map[string]interface{}{
 			"steps": v.Value,
@@ -68,6 +78,41 @@ func loadInfluxData(api *fitbitapi.Api) {
 	}
 	fmt.Println("Done loading steps")
 
+	fmt.Println("Loading weight data")
+	bodyWeight := api.GetBodyWeight()
+	bp, err4 := client.NewBatchPoints(client.BatchPointsConfig{
+		Database: InfluxDatabaseName,
+		Precision: "s",
+	})
+	if err4 != nil {
+		log.Fatal(err4)
+	}
+
+	for _, v := range bodyWeight.Weight{
+		t1, e := time.Parse("2006-01-02", v.Time)
+		if e != nil {
+			log.Fatal(e)
+		}
+		delta := time.Now().Sub(t1)
+		if int(delta.Hours()) > (TimePeriodI * 24) {
+			continue
+		}
+		tags := map[string]string{"weight":"body-weight"}
+		fields := map[string]interface{}{
+			"weight": v.Value,
+		}
+		pt, err4 := client.NewPoint("body_weight", tags, fields, t1)
+		if err4 != nil {
+			log.Fatal(err4)
+		}
+		bp.AddPoint(pt)
+	}
+
+	if err4 := c.Write(bp); err4 != nil {
+		log.Fatal(err4)
+	}
+	fmt.Println("Done loading body weight data")
+
 	fmt.Println("Loading resting heartrate data")
 	activityHeart := api.GetRestingHeartrate()
 
@@ -83,6 +128,10 @@ func loadInfluxData(api *fitbitapi.Api) {
 		t1, e := time.Parse("2006-01-02", v.Date)
 		if e != nil {
 			log.Fatal(e)
+		}
+		delta := time.Now().Sub(t1)
+		if int(delta.Hours()) > (TimePeriodI * 24) {
+			continue
 		}
 		tags := map[string]string{"heart": "resting-heart"}
 		fields := map[string]interface{}{
@@ -101,10 +150,10 @@ func loadInfluxData(api *fitbitapi.Api) {
 	}
 	fmt.Println("Done")
 
-	fmt.Println("Loading 30 days of 1s intraday heartrate data...")
+	fmt.Println("Loading "+TimePeriod+" days of 1s intraday heartrate data...")
 	//Get Heart Rate Intraday Time Series
 	now := time.Now()
-	for i := 0; i < 30; i++ {
+	for i := 0; i < TimePeriodI; i++ {
 		dateString := now.AddDate(0, 0, -i).Format("2006-01-02")
 		fmt.Printf("Loading: %s\n", dateString)
 		series := api.GetHeartrateTimeSeries(dateString)
@@ -114,7 +163,7 @@ func loadInfluxData(api *fitbitapi.Api) {
 			Precision: "s",
 		})
 
-		for _, point := range series.GetNormalisedSeries("Pacific/Auckland") {
+		for _, point := range series.GetNormalisedSeries("Europe/London") {
 			tags := map[string]string{"heart": "intraday-heart"}
 			fields := map[string]interface{}{
 				"rate": point.Value,
